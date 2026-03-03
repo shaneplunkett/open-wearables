@@ -3,8 +3,9 @@ from decimal import Decimal
 from typing import Literal
 from uuid import UUID
 
-from app.schemas.series_types import SeriesType
 from pydantic import BaseModel, Field
+
+from app.schemas.enums import SeriesType
 
 
 class TimeSeriesSampleBase(BaseModel):

@@ -1,11 +1,11 @@
 from typing import Annotated
 from uuid import UUID
 
+from app.schemas.common import PaginatedResponse
+from app.schemas.user import UserCreate, UserQueryParams, UserRead, UserUpdate
 from fastapi import APIRouter, Depends, status
 
 from app.database import DbSession
-from app.schemas.common import PaginatedResponse
-from app.schemas.user import UserCreate, UserQueryParams, UserRead, UserUpdate
 from app.services import ApiKeyDep, DeveloperDep, user_service
 
 router = APIRouter()

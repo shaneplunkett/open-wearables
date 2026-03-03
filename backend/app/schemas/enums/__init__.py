@@ -4,6 +4,9 @@ from .device_type import (
     infer_device_type_from_model,
     infer_device_type_from_source_name,
 )
+from .provider import (
+    ProviderName,
+)
 from .series_types import (
     SERIES_TYPE_DEFINITIONS,
     SERIES_TYPE_ID_BY_ENUM,
@@ -18,6 +21,8 @@ from .workout_types import (
 )
 
 __all__ = [
+    # Provider
+    "ProviderName",
     # DeviceType
     "DeviceType",
     "DEFAULT_DEVICE_TYPE_PRIORITY",

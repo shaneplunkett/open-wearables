@@ -1,6 +1,6 @@
 from .workout_import import (
-    WorkoutJSON,
     RootJSON,
+    WorkoutJSON,
 )
 
 __all__ = [

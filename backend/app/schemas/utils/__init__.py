@@ -1,9 +1,13 @@
 from .error_codes import (
     ErrorCode,
 )
+from .metadata import (
+    SourceMetadata,
+    TimeseriesMetadata,
+)
 from .pagination import (
-    Pagination,
     PaginatedResponse,
+    Pagination,
 )
 from .query_params import (
     FilterParams,
@@ -17,4 +21,7 @@ __all__ = [
     # Pagination
     "Pagination",
     "PaginatedResponse",
+    # Metadata
+    "SourceMetadata",
+    "TimeseriesMetadata",
 ]

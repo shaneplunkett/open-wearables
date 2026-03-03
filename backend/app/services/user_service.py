@@ -5,9 +5,15 @@ from uuid import UUID
 from app.database import DbSession
 from app.models import User
 from app.repositories.user_repository import UserRepository
-from app.schemas import UserCreate, UserCreateInternal, UserUpdate, UserUpdateInternal
-from app.schemas.common import PaginatedResponse
-from app.schemas.user import UserQueryParams, UserRead
+from app.schemas.model_crud.user_management import (
+    UserCreate,
+    UserCreateInternal,
+    UserQueryParams,
+    UserRead,
+    UserUpdate,
+    UserUpdateInternal,
+)
+from app.schemas.utils import PaginatedResponse
 from app.services.services import AppService
 from app.utils.exceptions import handle_exceptions
 

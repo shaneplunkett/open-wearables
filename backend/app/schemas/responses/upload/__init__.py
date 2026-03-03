@@ -1,6 +1,6 @@
 from .sync_results import (
-    SyncVendorDataResult,
     SyncAllUsersResult,
+    SyncVendorDataResult,
 )
 from .upload_response import (
     UploadDataResponse,
