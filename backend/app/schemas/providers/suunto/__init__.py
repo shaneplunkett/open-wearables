@@ -1,10 +1,12 @@
 from .workout_import import (
     RootJSON,
     WorkoutJSON,
+    HeartRateJSON,
 )
 
 __all__ = [
     # Workout import
-    "WorkoutJSON",
     "RootJSON",
+    "WorkoutJSON",
+    "HeartRateJSON",
 ]
