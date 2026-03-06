@@ -352,9 +352,9 @@ function UserDetailPage() {
           <DialogHeader>
             <DialogTitle>Connect Mobile App</DialogTitle>
             <DialogDescription>
-              Enter these details in the Open Wearables iOS app to connect it
-              to this user's account. The invitation code is single-use and
-              will expire.
+              Enter these details in the Open Wearables iOS app to connect it to
+              this user's account. The invitation code is single-use and will
+              expire.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
