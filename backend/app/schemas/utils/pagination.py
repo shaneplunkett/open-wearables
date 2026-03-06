@@ -3,7 +3,7 @@ from typing import Generic, TypeVar
 
 from pydantic import BaseModel, Field, computed_field, field_validator
 
-from app.schemas.utils import TimeseriesMetadata
+from .metadata import TimeseriesMetadata
 
 
 class Pagination(BaseModel):
