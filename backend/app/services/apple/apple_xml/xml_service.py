@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from logging import Logger
@@ -7,7 +8,12 @@ from uuid import UUID, uuid4
 from xml.etree import ElementTree as ET
 
 from app.config import settings
-from app.constants.series_types.apple import get_series_type_from_metric_type
+from app.constants.series_types.apple import (
+    SleepPhase,
+    get_series_type_from_metric_type,
+    get_sleep_phase_from_xml_value,
+)
+from app.constants.series_types.apple.category_types import AppleCategoryType
 from app.constants.workout_types import get_unified_apple_workout_type_xml
 from app.schemas import (
     EventRecordCreate,
@@ -19,6 +25,18 @@ from app.schemas import (
     TimeSeriesSampleCreate,
 )
 from app.schemas.apple.apple_xml.stats import XMLParseStats
+from app.schemas.apple.healthkit.sleep_state import SLEEP_START_STATES
+
+
+@dataclass
+class _SleepFragment:
+    """A single sleep stage record extracted from the XML."""
+
+    phase: SleepPhase
+    start: datetime
+    end: datetime
+    source_name: str
+    device: str | None
 
 
 class XMLService:
@@ -209,6 +227,145 @@ class XMLService:
         except (ValueError, ArithmeticError):
             return None
 
+    def _parse_sleep_record(self, document: dict[str, Any]) -> _SleepFragment | None:
+        """Parse a sleep analysis record into a fragment for later assembly."""
+        xml_value = document.get("value", "")
+        phase = get_sleep_phase_from_xml_value(xml_value)
+        if phase is None:
+            self.stats.sleep_skip(f"unknown_sleep_value:{xml_value}")
+            return None
+
+        try:
+            parsed = self._parse_date_fields(document)
+        except ValueError as e:
+            self.log.warning("Failed to parse date for sleep record: %s", str(e))
+            self.stats.sleep_skip("invalid_date")
+            return None
+
+        start = parsed.get("startDate")
+        end = parsed.get("endDate")
+        if not start or not end:
+            self.stats.sleep_skip("missing_dates")
+            return None
+
+        return _SleepFragment(
+            phase=phase,
+            start=start,
+            end=end,
+            source_name=document.get("sourceName", "Apple Health"),
+            device=document.get("device", "")[:100] or None,
+        )
+
+    def _assemble_sleep_sessions(
+        self,
+        fragments: list[_SleepFragment],
+        user_id: UUID,
+    ) -> list[tuple[EventRecordCreate, EventRecordDetailCreate]]:
+        """Sort sleep fragments by time and group into sessions using gap detection."""
+        if not fragments:
+            return []
+
+        fragments.sort(key=lambda f: f.start)
+        sessions: list[tuple[EventRecordCreate, EventRecordDetailCreate]] = []
+
+        # Accumulator for the current session
+        session_start: datetime = fragments[0].start
+        last_end: datetime = fragments[0].end
+        source_name: str = fragments[0].source_name
+        device: str | None = fragments[0].device
+        durations: dict[str, float] = {
+            "in_bed": 0.0,
+            "awake": 0.0,
+            "light": 0.0,
+            "deep": 0.0,
+            "rem": 0.0,
+        }
+        gap_seconds = settings.sleep_end_gap_minutes * 60
+
+        def _finalise_session() -> None:
+            total_sleep = durations["light"] + durations["deep"] + durations["rem"]
+            total_duration = (last_end - session_start).total_seconds()
+            if total_duration <= 0:
+                return
+
+            record_id = uuid4()
+            record = EventRecordCreate(
+                id=record_id,
+                external_id=None,
+                user_id=user_id,
+                source="apple_health_xml",
+                source_name=source_name,
+                device_model=device,
+                category="sleep",
+                type="sleep_session",
+                start_datetime=session_start,
+                end_datetime=last_end,
+                duration_seconds=int(total_duration),
+            )
+            detail = EventRecordDetailCreate(
+                record_id=record_id,
+                sleep_total_duration_minutes=int(total_sleep // 60),
+                sleep_time_in_bed_minutes=int(durations["in_bed"] // 60),
+                sleep_deep_minutes=int(durations["deep"] // 60),
+                sleep_rem_minutes=int(durations["rem"] // 60),
+                sleep_light_minutes=int(durations["light"] // 60),
+                sleep_awake_minutes=int(durations["awake"] // 60),
+            )
+            sessions.append((record, detail))
+            self.stats.sleep_sessions_created += 1
+
+        # Skip to first valid start fragment
+        first_valid = 0
+        for i, frag in enumerate(fragments):
+            if frag.phase in SLEEP_START_STATES:
+                first_valid = i
+                break
+        else:
+            return []
+
+        session_start = fragments[first_valid].start
+        last_end = fragments[first_valid].end
+        source_name = fragments[first_valid].source_name
+        device = fragments[first_valid].device
+
+        for frag in fragments[first_valid:]:
+            delta = (frag.start - last_end).total_seconds()
+
+            if delta > gap_seconds:
+                _finalise_session()
+                # Reset for new session
+                if frag.phase not in SLEEP_START_STATES:
+                    continue
+                session_start = frag.start
+                last_end = frag.end
+                source_name = frag.source_name
+                device = frag.device
+                durations = {"in_bed": 0.0, "awake": 0.0, "light": 0.0, "deep": 0.0, "rem": 0.0}
+
+            frag_duration = (frag.end - frag.start).total_seconds()
+            match frag.phase:
+                case SleepPhase.IN_BED:
+                    durations["in_bed"] += frag_duration
+                case SleepPhase.AWAKE:
+                    durations["awake"] += frag_duration
+                case SleepPhase.ASLEEP_LIGHT:
+                    durations["light"] += frag_duration
+                case SleepPhase.ASLEEP_DEEP:
+                    durations["deep"] += frag_duration
+                case SleepPhase.ASLEEP_REM:
+                    durations["rem"] += frag_duration
+                case SleepPhase.SLEEPING:
+                    durations["deep"] += frag_duration
+                case _:
+                    pass
+
+            if frag.end > last_end:
+                last_end = frag.end
+
+        # Finalise the last session
+        _finalise_session()
+        return sessions
+
     def _update_metrics_from_stat(self, metrics: EventRecordMetrics, statistic: dict[str, Any]) -> None:
         stat_type = statistic.get("type", "")
         if not stat_type:
@@ -250,6 +407,7 @@ class XMLService:
         """
         time_series_records: list[TimeSeriesSampleCreate] = []
         workouts: list[tuple[EventRecordCreate, EventRecordDetailCreate]] = []
+        sleep_fragments: list[_SleepFragment] = []
         uuid_user = UUID(user_id)
 
         # Reset stats for this parse run
@@ -271,6 +429,17 @@ class XMLService:
 
                 try:
                     record: dict[str, Any] = elem.attrib.copy()
+                    record_type = record.get("type", "")
+
+                    # Sleep records are category types, not quantity types
+                    if record_type == AppleCategoryType.SLEEP_ANALYSIS:
+                        fragment = self._parse_sleep_record(record)
+                        if fragment is not None:
+                            sleep_fragments.append(fragment)
+                            self.stats.sleep_records_collected += 1
+                        elem.clear()
+                        continue
+
                     record_create = self._create_record(record, uuid_user)
                     if record_create is not None:
                         time_series_records.append(record_create)
@@ -323,9 +492,18 @@ class XMLService:
                 finally:
                     elem.clear()
 
-        # yield remaining records and workout pairs
+        # Assemble sleep sessions from collected fragments
+        if sleep_fragments:
+            self.log.info(
+                "Assembling sleep sessions from %s fragments",
+                len(sleep_fragments),
+            )
+            sleep_sessions = self._assemble_sleep_sessions(sleep_fragments, uuid_user)
+            workouts.extend(sleep_sessions)
+
+        # yield remaining records and workout pairs (including sleep sessions)
         self.log.info(
-            "Final chunk: %s time series records, %s workouts",
+            "Final chunk: %s time series records, %s workouts/sleep sessions",
             len(time_series_records),
             len(workouts),
         )
@@ -340,11 +518,13 @@ class XMLService:
         total_workouts = self.stats.workouts_processed + self.stats.workouts_skipped
 
         self.log.info(
-            "XML parsing complete: %s/%s records processed, %s/%s workouts processed",
+            "XML parsing complete: %s/%s records processed, %s/%s workouts processed, %s sleep fragments → %s sessions",
             self.stats.records_processed,
             total_records,
             self.stats.workouts_processed,
             total_workouts,
+            self.stats.sleep_records_collected,
+            self.stats.sleep_sessions_created,
         )
 
         if self.stats.records_skipped > 0 or self.stats.workouts_skipped > 0:

@@ -52,6 +52,8 @@ def process_xml_upload(file_contents: bytes, filename: str, user_id: str) -> dic
                     "records_skipped": stats.records_skipped,
                     "workouts_processed": stats.workouts_processed,
                     "workouts_skipped": stats.workouts_skipped,
+                    "sleep_records_collected": stats.sleep_records_collected,
+                    "sleep_sessions_created": stats.sleep_sessions_created,
                     "skip_reasons": stats.skip_reasons,
                 },
             }
@@ -97,26 +99,31 @@ def _import_xml_data(db: Session, xml_path: str, user_id: str) -> XMLParseStats:
     for time_series_records, workouts in xml_service.parse_xml(user_id):
         for record, detail in workouts:
             try:
+                detail_type = record.category if record.category in ("workout", "sleep") else "workout"
                 created_record = event_record_service.create(db, record)
                 detail_for_record = detail.model_copy(update={"record_id": created_record.id})
-                event_record_service.create_detail(db, detail_for_record)
+                event_record_service.create_detail(db, detail_for_record, detail_type=detail_type)
             except Exception as e:
                 log_structured(
                     log,
                     "warning",
-                    "Failed to save workout record %s: %s - skipping",
+                    "Failed to save %s record %s: %s - skipping",
                     provider="apple_xml",
                     task="process_xml_upload",
+                    record_category=record.category if hasattr(record, "category") else "unknown",
                     record_type=record.type if hasattr(record, "type") else "unknown",
                     error=str(e),
                 )
                 log_and_capture_error(
                     e,
                     log,
-                    "Failed to save workout record %s: %s - skipping",
+                    "Failed to save %s record %s: %s - skipping",
                     extra={"record_type": record.type if hasattr(record, "type") else "unknown", "user_id": user_id},
                 )
-                xml_service.stats.workout_skip(f"db_error:{type(e).__name__}")
+                if record.category == "sleep":
+                    xml_service.stats.sleep_skip(f"db_error:{type(e).__name__}")
+                else:
+                    xml_service.stats.workout_skip(f"db_error:{type(e).__name__}")
 
         if time_series_records:
             timeseries_service.bulk_create_samples(db, time_series_records)
