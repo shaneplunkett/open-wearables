@@ -93,3 +93,34 @@ async def get_body_summary(
     Returns null if no body data exists for the user.
     """
     return await summaries_service.get_body_summary(db, user_id, average_period, latest_window_hours)
+
+
+@router.get("/users/{user_id}/summaries/cardiac")
+async def get_cardiac_summary(
+    user_id: UUID,
+    start_date: str,
+    end_date: str,
+    db: DbSession,
+    _api_key: ApiKeyDep,
+    timezone: str = "Australia/Melbourne",
+) -> PaginatedResponse:
+    """Returns daily cardiac summaries with POTS-relevant metrics.
+
+    Aggregates heart rate, HRV, SpO2, and respiratory rate data by day,
+    with intra-day time blocks (overnight/morning/afternoon/evening) in
+    the user's local timezone.
+
+    Includes derived POTS metrics:
+    - orthostatic_hr_delta_bpm (walking HR - resting HR)
+    - tachycardia_minutes (HR > 100bpm at rest)
+
+    The timezone parameter controls time block boundaries — defaults to
+    Australia/Melbourne.
+    """
+    from app.services.cardiac_service import cardiac_service
+
+    start_datetime = parse_query_datetime(start_date)
+    end_datetime = parse_query_datetime(end_date)
+    return await cardiac_service.get_cardiac_summaries(
+        db, user_id, start_datetime, end_datetime, timezone
+    )

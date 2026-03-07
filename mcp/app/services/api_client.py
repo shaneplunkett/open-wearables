@@ -167,6 +167,75 @@ class OpenWearablesClient:
         }
         return await self._request("GET", f"/api/v1/users/{user_id}/summaries/activity", params=params)
 
+    async def get_timeseries(
+        self,
+        user_id: str,
+        start_time: str,
+        end_time: str,
+        types: list[str] | None = None,
+        resolution: str = "raw",
+        limit: int = 50,
+        cursor: str | None = None,
+    ) -> dict[str, Any]:
+        """
+        Get granular time series data for a user.
+
+        Args:
+            user_id: UUID of the user
+            start_time: Start time in ISO 8601 format
+            end_time: End time in ISO 8601 format
+            types: Optional list of series types to filter by
+            resolution: Data resolution (raw, 1min, 5min, 15min, 1hour)
+            limit: Maximum number of samples to return (1-100)
+            cursor: Pagination cursor from previous response
+
+        Returns:
+            Paginated response with time series samples
+        """
+        params: dict[str, Any] = {
+            "start_time": start_time,
+            "end_time": end_time,
+            "resolution": resolution,
+            "limit": limit,
+        }
+        if types:
+            params["types"] = types
+        if cursor:
+            params["cursor"] = cursor
+        return await self._request(
+            "GET", f"/api/v1/users/{user_id}/timeseries", params=params
+        )
+
+
+
+    async def get_cardiac_summaries(
+        self,
+        user_id: str,
+        start_date: str,
+        end_date: str,
+        timezone: str = "Australia/Melbourne",
+        limit: int = 100,
+    ) -> dict[str, Any]:
+        """
+        Get cardiac summaries with POTS-relevant metrics for a user.
+
+        Args:
+            user_id: UUID of the user
+            start_date: Start date (YYYY-MM-DD format)
+            end_date: End date (YYYY-MM-DD format)
+            timezone: IANA timezone for time block boundaries
+            limit: Maximum number of records to return
+
+        Returns:
+            Paginated response with cardiac summaries
+        """
+        params = {
+            "start_date": start_date,
+            "end_date": end_date,
+            "timezone": timezone,
+            "limit": limit,
+        }
+        return await self._request("GET", f"/api/v1/users/{user_id}/summaries/cardiac", params=params)
 
 # Singleton instance
 client = OpenWearablesClient()

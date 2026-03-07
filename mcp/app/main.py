@@ -10,7 +10,9 @@ from app.prompts import prompts_router
 from app.tools.activity import activity_router
 from app.tools.sleep import sleep_router
 from app.tools.users import users_router
+from app.tools.timeseries import timeseries_router
 from app.tools.workouts import workouts_router
+from app.tools.cardiac import cardiac_router
 
 # Configure logging
 logging.basicConfig(
@@ -35,6 +37,14 @@ mcp = FastMCP(
     - get_activity_summary: Get daily activity data (steps, calories, heart rate, intensity minutes)
     - get_sleep_summary: Get sleep data for a user over a specified time period
     - get_workout_events: Get workout/exercise data for a user over a specified time period
+    - get_timeseries: Get granular time series data (heart rate samples, HRV, SpO2, etc.)
+    - get_cardiac_summary: Get daily cardiac summaries with POTS-relevant metrics
+      (orthostatic HR delta, tachycardia minutes, HRV, SpO2, time blocks).
+      Use this instead of get_timeseries when you need a compact cardiac overview
+      rather than raw samples. Ideal for POTS monitoring and autonomic health checks.
+      Use this for intra-day patterns, POTS monitoring, and any query needing individual
+      data points rather than daily summaries. Supports type filtering, resolution
+      downsampling, and cursor pagination.
 
     Available prompts:
     - present_health_data: Guidelines for formatting health data for human readability
@@ -105,6 +115,33 @@ mcp = FastMCP(
          end_date="2026-01-31", workout_type="running")
       3. Convert distance from km to miles and respond with the total
 
+    Example interaction:
+    User: "How's my POTS today?"
+    Assistant actions:
+      1. Call get_users() to find the user's ID
+      2. Call get_cardiac_summary(user_id="{{user_id}}", start_date="2026-03-05", end_date="2026-03-05")
+      3. Respond with: "Your orthostatic delta today is 42bpm (resting 75, walking 117) —
+         that's above the POTS threshold. You had 12 minutes of tachycardia.
+         Mornings were rougher (avg HR 82) compared to overnight (68).
+         HRV averaged 35.8ms across 10 readings. One SpO2 dip below 90% overnight."
+
+    Example interaction:
+    User: "What was my heart rate doing this morning?"
+    Assistant actions:
+      1. Call get_users() to find the user's ID
+      2. Calculate times: start_time = today 00:00:00, end_time = today 12:00:00
+      3. Call get_timeseries(user_id="{{user_id}}", start_time="2026-03-05T00:00:00",
+         end_time="2026-03-05T12:00:00", types=["heart_rate"], resolution="5min")
+      4. Respond with patterns: resting rate overnight, any spikes, morning rise
+
+    Example interaction:
+    User: "Show my HRV trend this week"
+    Assistant actions:
+      1. Calculate times for the past 7 days
+      2. Call get_timeseries(user_id="{{user_id}}", start_time="2026-02-26T00:00:00",
+         end_time="2026-03-05T23:59:59", types=["heart_rate_variability_sdnn"], resolution="1hour")
+      3. Respond with daily HRV averages, trends, and any notable changes
+
     The API key determines which users you can access (personal, team, or enterprise scope).
     All data is returned in a normalized format regardless of the original wearable provider.
     """,
@@ -115,6 +152,8 @@ mcp.mount(users_router)
 mcp.mount(activity_router)
 mcp.mount(sleep_router)
 mcp.mount(workouts_router)
+mcp.mount(timeseries_router)
+mcp.mount(cardiac_router)
 
 # Mount prompts
 mcp.mount(prompts_router)
