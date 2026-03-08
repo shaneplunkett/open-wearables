@@ -56,6 +56,9 @@ AUTO_EXPORT_METRIC_MAP: dict[str, SeriesType] = {
     "body_mass_index": SeriesType.body_mass_index,
     "distance_cycling": SeriesType.distance_cycling,
     "distance_swimming": SeriesType.distance_swimming,
+    "apple_stand_time": SeriesType.stand_time,
+    "walking_running_distance": SeriesType.distance_walking_running,
+    "physical_effort": SeriesType.physical_effort,
 }
 
 BLOOD_PRESSURE_METRIC = "blood_pressure"
