@@ -209,6 +209,16 @@ class ImportService:
         metrics_raw: list[dict[str, Any]] = root.data.get("metrics", [])
         user_uuid = UUID(user_id)
 
+        log_structured(
+            self.log,
+            "info",
+            "Processing metrics",
+            provider="apple",
+            action="apple_ae_metrics_debug",
+            metric_count=len(metrics_raw),
+            metric_names=[m.get("name", "") for m in metrics_raw[:20]],
+        )
+
         samples: list[TimeSeriesSampleCreate] = []
         sleep_records: list[tuple[EventRecordCreate, EventRecordDetailCreate]] = []
         metrics_skipped = 0
