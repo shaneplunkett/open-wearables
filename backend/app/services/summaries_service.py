@@ -497,14 +497,13 @@ class SummariesService:
                     min_bpm=result.get("hr_min"),
                 )
 
-            # Calculate total calories from time-series data
+            # Active calories from time-series data
             # Note: workout energy (from WorkoutDetails) is typically a subset of active_energy,
             # not additive - providers report daily totals that include workout calories
             active_cal = result.get("active_energy_sum")
-            basal_cal = result.get("basal_energy_sum")
-            total_cal = None
-            if active_cal is not None or basal_cal is not None:
-                total_cal = (active_cal or 0.0) + (basal_cal or 0.0)
+            # Basal energy from Auto Export has overlapping HealthKit samples (~1.9x overcounted)
+            # so we don't include it in total_calories. Show active only.
+            total_cal = active_cal
 
             # Get active/sedentary minutes
             active_mins = activity_data.get("active_minutes")
