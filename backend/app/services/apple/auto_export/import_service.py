@@ -59,6 +59,14 @@ AUTO_EXPORT_METRIC_MAP: dict[str, SeriesType] = {
     "apple_stand_time": SeriesType.stand_time,
     "walking_running_distance": SeriesType.distance_walking_running,
     "physical_effort": SeriesType.physical_effort,
+    "blood_oxygen_saturation": SeriesType.oxygen_saturation,
+    "apple_sleeping_wrist_temperature": SeriesType.skin_temperature,
+    "breathing_disturbances": SeriesType.sleeping_breathing_disturbances,
+    "apple_exercise_time": SeriesType.exercise_time,
+    "time_in_daylight": SeriesType.time_in_daylight,
+    "stair_speed_up": SeriesType.stair_ascent_speed,
+    "stair_speed_down": SeriesType.stair_descent_speed,
+    "six_minute_walking_test_distance": SeriesType.six_minute_walk_test_distance,
 }
 
 BLOOD_PRESSURE_METRIC = "blood_pressure"
