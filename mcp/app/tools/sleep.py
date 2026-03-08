@@ -9,93 +9,30 @@ from app.utils import normalize_datetime
 
 logger = logging.getLogger(__name__)
 
-# Create router for sleep-related tools
+USER_ID = "23b9eb57-9f74-424e-b07e-e9b7174aa0c9"
+
 sleep_router = FastMCP(name="Sleep Tools")
 
 
 @sleep_router.tool
-async def get_sleep_summary(
-    user_id: str,
-    start_date: str,
-    end_date: str,
-) -> dict:
-    """
-    Get daily sleep summaries for a user within a date range.
-
-    This tool retrieves daily sleep summaries including start time, end time,
-    duration, and sleep stages (if available from the wearable device).
+async def get_sleep_summary(start_date: str, end_date: str) -> dict:
+    """Get daily sleep summaries (duration, stages, physio metrics).
 
     Args:
-        user_id: UUID of the user. Use get_users to discover available users.
-        start_date: Start date in YYYY-MM-DD format.
-                    Example: "2026-01-01"
-        end_date: End date in YYYY-MM-DD format.
-                  Example: "2026-01-07"
-
-    Returns:
-        A dictionary containing:
-        - user: Information about the user (id, first_name, last_name)
-        - period: The date range queried (start, end)
-        - records: List of sleep records with date, start_datetime, end_datetime, duration
-        - summary: Aggregate statistics (avg_duration, total_nights, etc.)
-
-    Example response:
-        {
-            "user": {"id": "uuid-1", "first_name": "John", "last_name": "Doe"},
-            "period": {"start": "2026-01-05", "end": "2026-01-12"},
-            "records": [
-                {
-                    "date": "2026-01-11",
-                    "start_datetime": "2026-01-11T23:15:00+00:00",
-                    "end_datetime": "2026-01-12T07:30:00+00:00",
-                    "duration_minutes": 495,
-                    "source": "whoop"
-                }
-            ],
-            "summary": {
-                "total_nights": 7,
-                "nights_with_data": 6,
-                "avg_duration_minutes": 465,
-                "min_duration_minutes": 360,
-                "max_duration_minutes": 540
-            }
-        }
-
-    Notes for LLMs:
-        - Call get_users first to get the user_id.
-        - Calculate dates based on user queries:
-          "last week" → start_date = 7 days ago, end_date = today
-          "January 2026" → start_date = "2026-01-01", end_date = "2026-01-31"
-        - Duration is in minutes.
-        - The 'date' field is based on end_datetime (when the user woke up), not when they fell asleep.
-        - start_datetime and end_datetime are full ISO 8601 timestamps. Sleep typically
-          spans midnight, so end_datetime is often the day after start_datetime.
-        - The 'source' field indicates which wearable provided the data (whoop, garmin, etc.)
+        start_date: YYYY-MM-DD
+        end_date: YYYY-MM-DD
     """
     try:
-        # Fetch user details
-        try:
-            user_data = await client.get_user(user_id)
-            user = {
-                "id": str(user_data.get("id")),
-                "first_name": user_data.get("first_name"),
-                "last_name": user_data.get("last_name"),
-            }
-        except ValueError as e:
-            return {"error": f"User not found: {user_id}", "details": str(e)}
-
-        # Fetch sleep data
         sleep_response = await client.get_sleep_summaries(
-            user_id=user_id,
+            user_id=USER_ID,
             start_date=start_date,
             end_date=end_date,
         )
 
         records_data = sleep_response.get("data", [])
 
-        # Transform records
         records = []
-        durations = []
+        durations: list[int] = []
 
         for record in records_data:
             duration = record.get("duration_minutes")
@@ -113,12 +50,10 @@ async def get_sleep_summary(
                 "source": source.get("provider") if isinstance(source, dict) else source,
             }
 
-            # Sleep stages
             stages = record.get("stages")
             if stages:
                 entry["stages"] = stages
 
-            # Physiological metrics during sleep
             for key in (
                 "avg_heart_rate_bpm",
                 "avg_hrv_sdnn_ms",
@@ -131,8 +66,7 @@ async def get_sleep_summary(
 
             records.append(entry)
 
-        # Calculate summary statistics
-        summary = {
+        summary: dict = {
             "total_nights": len(records),
             "nights_with_data": len(durations),
             "avg_duration_minutes": None,
@@ -151,15 +85,11 @@ async def get_sleep_summary(
             )
 
         return {
-            "user": user,
             "period": {"start": start_date, "end": end_date},
             "records": records,
             "summary": summary,
         }
 
-    except ValueError as e:
-        logger.error(f"API error in get_sleep_summary: {e}")
-        return {"error": str(e)}
     except Exception as e:
-        logger.exception(f"Unexpected error in get_sleep_summary: {e}")
-        return {"error": f"Failed to fetch sleep summary: {e}"}
+        logger.exception(f"Error in get_sleep_summary: {e}")
+        return {"error": str(e)}
