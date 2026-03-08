@@ -272,61 +272,101 @@ class ImportService:
         data_entries: list[dict[str, Any]],
         user_uuid: UUID,
     ) -> list[tuple[EventRecordCreate, EventRecordDetailCreate]]:
-        """Build sleep EventRecords from auto export sleep_analysis entries."""
-        results: list[tuple[EventRecordCreate, EventRecordDetailCreate]] = []
+        """Assemble sleep fragments into sessions using gap detection.
 
+        Auto Export sends individual sleep fragments with:
+          startDate, endDate, qty (hours), value (stage name), source
+        Stage names: Core, Deep, REM, Awake, InBed, Asleep
+        """
+        if not data_entries:
+            return []
+
+        # Map Auto Export stage names to duration buckets
+        stage_map: dict[str, str] = {
+            "Core": "light",
+            "Light": "light",
+            "Deep": "deep",
+            "REM": "rem",
+            "Awake": "awake",
+            "InBed": "in_bed",
+            "In Bed": "in_bed",
+            "Asleep": "light",  # unspecified asleep → light
+        }
+
+        # Parse fragments
+        fragments: list[tuple[datetime, datetime, str, str]] = []
         for entry in data_entries:
-            total_sleep = entry.get("totalSleep")
-            if total_sleep is None or total_sleep <= 0:
+            start_str = entry.get("startDate") or entry.get("date")
+            end_str = entry.get("endDate")
+            if not start_str or not end_str:
                 continue
-
-            sleep_start_str = entry.get("sleepStart") or entry.get("date")
-            sleep_end_str = entry.get("sleepEnd")
-            if not sleep_start_str or not sleep_end_str:
+            stage = entry.get("value", "")
+            bucket = stage_map.get(stage)
+            if bucket is None:
                 continue
+            source = entry.get("source", "Auto Export")
+            fragments.append((self._dt(start_str), self._dt(end_str), bucket, source))
 
-            sleep_start = self._dt(sleep_start_str)
-            sleep_end = self._dt(sleep_end_str)
+        if not fragments:
+            return []
 
-            asleep_hrs = entry.get("asleep", 0) or 0
-            deep_hrs = entry.get("deep", 0) or 0
-            rem_hrs = entry.get("rem", 0) or 0
-            core_hrs = entry.get("core", 0) or 0
-            awake_hrs = max(total_sleep - asleep_hrs, 0) if asleep_hrs else 0
+        fragments.sort(key=lambda f: f[0])
 
-            duration_seconds = int((sleep_end - sleep_start).total_seconds())
-            efficiency = round(asleep_hrs / total_sleep * 100, 1) if total_sleep > 0 and asleep_hrs else None
+        # Assemble sessions with 1-hour gap threshold
+        gap_seconds = 3600
+        sessions: list[tuple[EventRecordCreate, EventRecordDetailCreate]] = []
 
+        session_start = fragments[0][0]
+        last_end = fragments[0][1]
+        source_name = fragments[0][3]
+        durations: dict[str, float] = {"in_bed": 0.0, "awake": 0.0, "light": 0.0, "deep": 0.0, "rem": 0.0}
+
+        def _finalise() -> None:
+            total_sleep = durations["light"] + durations["deep"] + durations["rem"]
+            total_duration = (last_end - session_start).total_seconds()
+            if total_duration <= 0:
+                return
             record_id = uuid4()
             record = EventRecordCreate(
-                category="sleep",
-                type="sleep_session",
-                source_name="Auto Export",
-                device_model=None,
-                duration_seconds=duration_seconds,
-                start_datetime=sleep_start,
-                end_datetime=sleep_end,
                 id=record_id,
                 external_id=None,
-                source="apple_health_auto_export",
                 user_id=user_uuid,
+                source="apple_health_auto_export",
+                source_name=source_name,
+                device_model=None,
+                category="sleep",
+                type="sleep_session",
+                start_datetime=session_start,
+                end_datetime=last_end,
+                duration_seconds=int(total_duration),
             )
-
             detail = EventRecordDetailCreate(
                 record_id=record_id,
-                sleep_total_duration_minutes=round(asleep_hrs * 60, 1),
-                sleep_time_in_bed_minutes=round(total_sleep * 60, 1),
-                sleep_deep_minutes=round(deep_hrs * 60, 1),
-                sleep_rem_minutes=round(rem_hrs * 60, 1),
-                sleep_light_minutes=round(core_hrs * 60, 1),
-                sleep_awake_minutes=round(awake_hrs * 60, 1),
-                sleep_efficiency_score=efficiency,
-                is_nap=False,
+                sleep_total_duration_minutes=int(total_sleep // 60),
+                sleep_time_in_bed_minutes=int(durations["in_bed"] // 60),
+                sleep_deep_minutes=int(durations["deep"] // 60),
+                sleep_rem_minutes=int(durations["rem"] // 60),
+                sleep_light_minutes=int(durations["light"] // 60),
+                sleep_awake_minutes=int(durations["awake"] // 60),
             )
+            sessions.append((record, detail))
 
-            results.append((record, detail))
+        for frag_start, frag_end, bucket, source in fragments:
+            delta = (frag_start - last_end).total_seconds()
+            if delta > gap_seconds:
+                _finalise()
+                session_start = frag_start
+                last_end = frag_end
+                source_name = source
+                durations = {"in_bed": 0.0, "awake": 0.0, "light": 0.0, "deep": 0.0, "rem": 0.0}
 
-        return results
+            frag_duration = (frag_end - frag_start).total_seconds()
+            durations[bucket] += frag_duration
+            if frag_end > last_end:
+                last_end = frag_end
+
+        _finalise()
+        return sessions
 
     def _build_import_bundles(
         self,
