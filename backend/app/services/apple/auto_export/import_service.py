@@ -562,15 +562,6 @@ class ImportService:
                 )
                 return UploadDataResponse(status_code=400, response="No valid data found", user_id=user_id)
 
-            # Dump payload for debugging
-            dump_path = "/data/ae_payload.json"
-            try:
-                with open(dump_path, "w") as f:
-                    json.dump(data, f)
-                self.log.info("Dumped AE payload to %s", dump_path)
-            except Exception as dump_err:
-                self.log.warning("Failed to dump AE payload: %s", dump_err)
-
             # Extract incoming counts for logging
             data_section = data.get("data", {})
             incoming_workouts = len(data_section.get("workouts", []))
