@@ -171,10 +171,20 @@ class ImportService:
         if len(by_source) <= 1:
             return data_entries
 
-        # Prefer Watch source
+        # Prefer Watch-only source (no pipe), then Watch+phone (piped), then most entries
+        watch_only: list[dict[str, Any]] = []
+        watch_piped: list[dict[str, Any]] = []
         for source_name, entries in by_source.items():
-            if "Watch" in source_name and "|" not in source_name:
-                return entries
+            if "Watch" in source_name:
+                if "|" not in source_name:
+                    watch_only = entries
+                else:
+                    watch_piped = entries
+
+        if watch_only:
+            return watch_only
+        if watch_piped:
+            return watch_piped
 
         # Fallback: source with most entries
         return max(by_source.values(), key=len)
