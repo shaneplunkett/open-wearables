@@ -103,15 +103,33 @@ async def get_sleep_summary(
                 durations.append(duration)
 
             source = record.get("source", {})
-            records.append(
-                {
-                    "date": str(record.get("date")),
-                    "start_datetime": normalize_datetime(record.get("start_time")),
-                    "end_datetime": normalize_datetime(record.get("end_time")),
-                    "duration_minutes": duration,
-                    "source": source.get("provider") if isinstance(source, dict) else source,
-                }
-            )
+            entry: dict = {
+                "date": str(record.get("date")),
+                "start_datetime": normalize_datetime(record.get("start_time")),
+                "end_datetime": normalize_datetime(record.get("end_time")),
+                "duration_minutes": duration,
+                "time_in_bed_minutes": record.get("time_in_bed_minutes"),
+                "efficiency_percent": record.get("efficiency_percent"),
+                "source": source.get("provider") if isinstance(source, dict) else source,
+            }
+
+            # Sleep stages
+            stages = record.get("stages")
+            if stages:
+                entry["stages"] = stages
+
+            # Physiological metrics during sleep
+            for key in (
+                "avg_heart_rate_bpm",
+                "avg_hrv_sdnn_ms",
+                "avg_respiratory_rate",
+                "avg_spo2_percent",
+            ):
+                val = record.get(key)
+                if val is not None:
+                    entry[key] = val
+
+            records.append(entry)
 
         # Calculate summary statistics
         summary = {
