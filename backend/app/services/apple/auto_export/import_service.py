@@ -506,14 +506,16 @@ class ImportService:
         # Process metrics (heart rate, steps, sleep, blood pressure, etc.)
         metric_samples, sleep_records, metrics_skipped = self._process_metrics(raw, user_id)
 
-        if metric_samples:
-            self.timeseries_service.bulk_create_samples(db_session, metric_samples)
-
-        # Persist sleep records
+        # Persist sleep records FIRST — event_record.create() does its own
+        # commit/rollback cycle, which would roll back any staged metric data.
         for sleep_record, sleep_detail in sleep_records:
             created = self.event_record_service.create(db_session, sleep_record)
             detail_for_sleep = sleep_detail.model_copy(update={"record_id": created.id})
             self.event_record_service.create_detail(db_session, detail_for_sleep, detail_type="sleep")
+
+        # Bulk insert metric time series AFTER event records are settled
+        if metric_samples:
+            self.timeseries_service.bulk_create_samples(db_session, metric_samples)
 
         # Commit all changes in one transaction
         db_session.commit()
