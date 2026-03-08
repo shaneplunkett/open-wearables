@@ -181,16 +181,6 @@ class ImportService:
 
             # Sleep gets special handling — EventRecord, not time series
             if name == SLEEP_METRIC:
-                log_structured(
-                    self.log,
-                    "info",
-                    "Sleep metric data sample",
-                    provider="apple",
-                    action="apple_ae_sleep_debug",
-                    entry_count=len(data_entries),
-                    first_entry=data_entries[0] if data_entries else None,
-                    entry_keys=list(data_entries[0].keys()) if data_entries else [],
-                )
                 sleep_records.extend(self._process_sleep_metric(data_entries, user_uuid))
                 continue
 
@@ -503,18 +493,6 @@ class ImportService:
             data_section = data.get("data", {})
             incoming_workouts = len(data_section.get("workouts", []))
             incoming_metrics = len(data_section.get("metrics", []))
-
-            # Debug: log all top-level keys and metric names
-            log_structured(
-                self.log,
-                "info",
-                "Auto Export payload structure",
-                provider="apple",
-                action="apple_ae_payload_debug",
-                data_keys=list(data_section.keys()),
-                metric_names=[m.get("name") for m in data_section.get("metrics", [])],
-                user_id=user_id,
-            )
 
             # Load data and get saved counts
             saved_counts = self.load_data(db_session, data, user_id=user_id, batch_id=batch_id)
