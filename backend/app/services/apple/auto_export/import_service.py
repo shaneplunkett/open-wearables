@@ -168,6 +168,16 @@ class ImportService:
             source = entry.get("source", "")
             by_source.setdefault(source, []).append(entry)
 
+        log_structured(
+            self.log,
+            "debug",
+            "Source filter: sources found",
+            provider="apple",
+            action="apple_ae_source_filter",
+            source_count=len(by_source),
+            sources={name: len(entries) for name, entries in by_source.items()},
+        )
+
         if len(by_source) <= 1:
             return data_entries
 
@@ -180,6 +190,17 @@ class ImportService:
                     watch_only = entries
                 else:
                     watch_piped = entries
+
+        selected = "watch_only" if watch_only else "watch_piped" if watch_piped else "fallback"
+        log_structured(
+            self.log,
+            "debug",
+            "Source filter: selected %s",
+            provider="apple",
+            action="apple_ae_source_selected",
+            selected=selected,
+            entry_count=len(watch_only or watch_piped or []),
+        )
 
         if watch_only:
             return watch_only
@@ -226,7 +247,7 @@ class ImportService:
             provider="apple",
             action="apple_ae_metrics_debug",
             metric_count=len(metrics_raw),
-            metric_names=[m.get("name", "") for m in metrics_raw[:20]],
+            metric_names=[m.get("name", "") for m in metrics_raw],
         )
 
         samples: list[TimeSeriesSampleCreate] = []
