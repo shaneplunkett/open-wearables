@@ -87,6 +87,14 @@ CUMULATIVE_SERIES_TYPES: set[SeriesType] = {
     SeriesType.time_in_daylight,
 }
 
+# Unit conversions: Auto Export unit → (target unit, multiplier)
+# Applied during import so stored values match our series type definitions.
+KJ_TO_KCAL = Decimal("4.184")
+UNIT_CONVERSIONS: dict[str, Decimal] = {
+    "kJ": Decimal(1) / KJ_TO_KCAL,  # kJ → kcal
+    "km": Decimal("1000"),  # km → meters
+}
+
 
 class ImportService:
     def __init__(self, log: Logger):
@@ -168,16 +176,6 @@ class ImportService:
             source = entry.get("source", "")
             by_source.setdefault(source, []).append(entry)
 
-        log_structured(
-            self.log,
-            "debug",
-            "Source filter: sources found",
-            provider="apple",
-            action="apple_ae_source_filter",
-            source_count=len(by_source),
-            sources={name: len(entries) for name, entries in by_source.items()},
-        )
-
         if len(by_source) <= 1:
             return data_entries
 
@@ -190,17 +188,6 @@ class ImportService:
                     watch_only = entries
                 else:
                     watch_piped = entries
-
-        selected = "watch_only" if watch_only else "watch_piped" if watch_piped else "fallback"
-        log_structured(
-            self.log,
-            "debug",
-            "Source filter: selected %s",
-            provider="apple",
-            action="apple_ae_source_selected",
-            selected=selected,
-            entry_count=len(watch_only or watch_piped or []),
-        )
 
         if watch_only:
             return watch_only
@@ -236,24 +223,9 @@ class ImportService:
         Returns:
             (samples, sleep_records, metrics_skipped) tuple
         """
-        # Temporary: dump raw payload for debugging source filter
-        import pathlib
-
-        pathlib.Path("/tmp/ae_payload.json").write_text(json.dumps(raw))
-
         root = RootJSON(**raw)
         metrics_raw: list[dict[str, Any]] = root.data.get("metrics", [])
         user_uuid = UUID(user_id)
-
-        log_structured(
-            self.log,
-            "info",
-            "Processing metrics",
-            provider="apple",
-            action="apple_ae_metrics_debug",
-            metric_count=len(metrics_raw),
-            metric_names=[m.get("name", "") for m in metrics_raw],
-        )
 
         samples: list[TimeSeriesSampleCreate] = []
         sleep_records: list[tuple[EventRecordCreate, EventRecordDetailCreate]] = []
@@ -261,6 +233,7 @@ class ImportService:
 
         for metric in metrics_raw:
             name = metric.get("name", "")
+            units = metric.get("units", "")
             data_entries: list[dict[str, Any]] = metric.get("data", [])
 
             if not data_entries:
@@ -327,6 +300,9 @@ class ImportService:
             if series_type in CUMULATIVE_SERIES_TYPES:
                 entries_to_process = self._filter_to_primary_source(data_entries)
 
+            # Unit conversion (e.g. kJ → kcal, km → meters)
+            unit_factor = UNIT_CONVERSIONS.get(units)
+
             for entry in entries_to_process:
                 date_str = entry.get("date")
                 if not date_str:
@@ -334,6 +310,8 @@ class ImportService:
                 value = self._extract_value(entry, name)
                 if value is None:
                     continue
+                if unit_factor is not None:
+                    value = value * unit_factor
                 samples.append(
                     TimeSeriesSampleCreate(
                         id=uuid4(),
