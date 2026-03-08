@@ -8,6 +8,7 @@ from fastmcp import FastMCP
 from app.config import settings
 from app.tools.activity import activity_router
 from app.tools.cardiac import cardiac_router
+from app.tools.hydration import hydration_router
 from app.tools.sleep import sleep_router
 
 # Configure logging
@@ -23,14 +24,15 @@ mcp = FastMCP(
     instructions=f"""Today is {date.today().isoformat()}.
 
 Health data from Shane's Apple Watch via Auto Export.
-Three tools: activity (steps/calories/distance/HR), sleep (duration/stages/physio), cardiac (POTS/HRV/orthostatic).
-All take start_date and end_date in YYYY-MM-DD format. Default to last 7 days if unspecified.
+Four tools: activity, sleep, cardiac, hydration. All dates in YYYY-MM-DD.
+Default to last 7 days if unspecified.
 """,
 )
 
 mcp.mount(activity_router)
 mcp.mount(sleep_router)
 mcp.mount(cardiac_router)
+mcp.mount(hydration_router)
 
 logger.info(f"Open Wearables MCP server initialized. API URL: {settings.open_wearables_api_url}")
 

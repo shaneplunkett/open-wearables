@@ -60,5 +60,16 @@ class OpenWearablesClient:
         params = {"start_date": start_date, "end_date": end_date, "timezone": timezone, "limit": limit}
         return await self._request("GET", f"/api/v1/users/{user_id}/summaries/cardiac", params=params)
 
+    async def get_timeseries(
+        self,
+        user_id: str,
+        start_time: str,
+        end_time: str,
+        types: list[str],
+        limit: int = 100,
+    ) -> dict[str, Any]:
+        params = {"start_time": start_time, "end_time": end_time, "types": types, "limit": limit}
+        return await self._request("GET", f"/api/v1/users/{user_id}/timeseries", params=params)
+
 
 client = OpenWearablesClient()
