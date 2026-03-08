@@ -236,6 +236,11 @@ class ImportService:
         Returns:
             (samples, sleep_records, metrics_skipped) tuple
         """
+        # Temporary: dump raw payload for debugging source filter
+        import pathlib
+
+        pathlib.Path("/tmp/ae_payload.json").write_text(json.dumps(raw))
+
         root = RootJSON(**raw)
         metrics_raw: list[dict[str, Any]] = root.data.get("metrics", [])
         user_uuid = UUID(user_id)
