@@ -72,6 +72,21 @@ AUTO_EXPORT_METRIC_MAP: dict[str, SeriesType] = {
 BLOOD_PRESSURE_METRIC = "blood_pressure"
 SLEEP_METRIC = "sleep_analysis"
 
+# Cumulative metrics where HealthKit samples overlap across devices.
+# For these, we filter to a single source (prefer Watch) to avoid overcounting.
+CUMULATIVE_SERIES_TYPES: set[SeriesType] = {
+    SeriesType.steps,
+    SeriesType.energy,
+    SeriesType.basal_energy,
+    SeriesType.distance_walking_running,
+    SeriesType.distance_cycling,
+    SeriesType.distance_swimming,
+    SeriesType.flights_climbed,
+    SeriesType.exercise_time,
+    SeriesType.stand_time,
+    SeriesType.time_in_daylight,
+}
+
 
 class ImportService:
     def __init__(self, log: Logger):
@@ -136,6 +151,33 @@ class ImportService:
                 )
 
         return samples
+
+    def _filter_to_primary_source(self, data_entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Filter cumulative metric entries to a single source to avoid overlap.
+
+        HealthKit cumulative samples (steps, energy, distance) overlap across
+        devices (Watch + iPhone both report independently). Summing all sources
+        overcounts. This picks the Watch as source of truth, falling back to
+        the source with the most entries.
+        """
+        if not data_entries:
+            return data_entries
+
+        by_source: dict[str, list[dict[str, Any]]] = {}
+        for entry in data_entries:
+            source = entry.get("source", "")
+            by_source.setdefault(source, []).append(entry)
+
+        if len(by_source) <= 1:
+            return data_entries
+
+        # Prefer Watch source
+        for source_name, entries in by_source.items():
+            if "Watch" in source_name and "|" not in source_name:
+                return entries
+
+        # Fallback: source with most entries
+        return max(by_source.values(), key=len)
 
     def _extract_value(self, entry: dict[str, Any], metric_name: str) -> Decimal | None:
         """Extract the numeric value from a metric data entry.
@@ -233,7 +275,13 @@ class ImportService:
                 )
                 continue
 
-            for entry in data_entries:
+            # For cumulative metrics, filter to single source (Watch preferred)
+            # to avoid overcounting from overlapping HealthKit samples
+            entries_to_process = data_entries
+            if series_type in CUMULATIVE_SERIES_TYPES:
+                entries_to_process = self._filter_to_primary_source(data_entries)
+
+            for entry in entries_to_process:
                 date_str = entry.get("date")
                 if not date_str:
                     continue
