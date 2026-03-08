@@ -2,8 +2,7 @@ import contextlib
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import UUID as SQL_UUID
-from sqlalchemy import Date, Integer, String, and_, asc, case, cast, desc, func, tuple_
+from sqlalchemy import Date, and_, asc, cast, desc, func, tuple_
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Query, selectinload
@@ -298,64 +297,34 @@ class EventRecordRepository(
         cursor: str | None,
         limit: int,
     ) -> list[dict]:
-        """Get daily sleep summaries aggregated by date, source, and device_model.
+        """Get individual sleep session records with stage details.
+
+        Each EventRecord with category='sleep' is already a complete session
+        (assembled from fragments at import time). Returns one row per session.
 
         Returns list of dicts with keys:
         - sleep_date, min_start_time, max_end_time, total_duration_minutes
         - source, device_model, record_id
         - time_in_bed_minutes, efficiency_percent
         - deep_minutes, light_minutes, rem_minutes, awake_minutes
-        - nap_count, nap_duration_minutes
+        - is_nap
         """
-        # Helper: condition for "is NOT a nap" (main sleep)
-        # is_nap can be True, False, or NULL - we treat NULL as "not a nap"
-        is_main_sleep = func.coalesce(SleepDetails.is_nap, False) == False  # noqa: E712
-
-        # Build base aggregated query as subquery
-        # Join with SleepDetails to get sleep stage data
-        # Cast UUID to text for min() since PostgreSQL doesn't support min() on UUID directly
-        subquery = (
+        query = (
             db_session.query(
                 cast(EventRecord.end_datetime, Date).label("sleep_date"),
-                # Main sleep times (exclude naps)
-                func.min(case((is_main_sleep, EventRecord.start_datetime), else_=None)).label("min_start_time"),
-                func.max(case((is_main_sleep, EventRecord.end_datetime), else_=None)).label("max_end_time"),
-                # Main sleep duration (exclude naps)
-                func.sum(case((is_main_sleep, EventRecord.duration_seconds), else_=0)).label("total_duration"),
+                EventRecord.start_datetime.label("min_start_time"),
+                EventRecord.end_datetime.label("max_end_time"),
+                EventRecord.duration_seconds.label("total_duration"),
                 DataSource.source,
                 DataSource.device_model,
-                func.min(cast(EventRecord.id, String)).label("record_id_text"),
-                # Sleep details aggregations - main sleep only (minutes stored, convert to seconds later)
-                func.sum(case((is_main_sleep, SleepDetails.sleep_time_in_bed_minutes), else_=None)).label(
-                    "time_in_bed_minutes"
-                ),
-                func.sum(case((is_main_sleep, SleepDetails.sleep_deep_minutes), else_=None)).label("deep_minutes"),
-                func.sum(case((is_main_sleep, SleepDetails.sleep_light_minutes), else_=None)).label("light_minutes"),
-                func.sum(case((is_main_sleep, SleepDetails.sleep_rem_minutes), else_=None)).label("rem_minutes"),
-                func.sum(case((is_main_sleep, SleepDetails.sleep_awake_minutes), else_=None)).label("awake_minutes"),
-                # Weighted average for efficiency - main sleep only (weight by duration)
-                func.sum(
-                    case(
-                        (is_main_sleep, SleepDetails.sleep_efficiency_score * EventRecord.duration_seconds),
-                        else_=None,
-                    )
-                ).label("efficiency_weighted_sum"),
-                func.sum(
-                    case(
-                        (
-                            and_(is_main_sleep, SleepDetails.sleep_efficiency_score != None),  # noqa: E711
-                            EventRecord.duration_seconds,
-                        ),
-                        else_=0,
-                    )
-                ).label("efficiency_duration_sum"),
-                # Nap aggregations
-                func.sum(
-                    cast(SleepDetails.is_nap == True, Integer)  # noqa: E712
-                ).label("nap_count"),
-                func.sum(
-                    case((SleepDetails.is_nap == True, EventRecord.duration_seconds), else_=0)  # noqa: E712
-                ).label("nap_duration"),
+                EventRecord.id.label("record_id"),
+                SleepDetails.sleep_time_in_bed_minutes.label("time_in_bed_minutes"),
+                SleepDetails.sleep_deep_minutes.label("deep_minutes"),
+                SleepDetails.sleep_light_minutes.label("light_minutes"),
+                SleepDetails.sleep_rem_minutes.label("rem_minutes"),
+                SleepDetails.sleep_awake_minutes.label("awake_minutes"),
+                SleepDetails.sleep_efficiency_score.label("efficiency_percent"),
+                func.coalesce(SleepDetails.is_nap, False).label("is_nap"),
             )
             .join(DataSource, EventRecord.data_source_id == DataSource.id)
             .outerjoin(SleepDetails, SleepDetails.record_id == EventRecord.id)
@@ -365,32 +334,6 @@ class EventRecordRepository(
                 EventRecord.end_datetime >= start_date,
                 cast(EventRecord.end_datetime, Date) < cast(end_date, Date),
             )
-            .group_by(
-                cast(EventRecord.end_datetime, Date),
-                DataSource.source,
-                DataSource.device_model,
-            )
-        ).subquery()
-
-        # Build main query from subquery, casting record_id back to UUID
-        record_id_col = cast(subquery.c.record_id_text, SQL_UUID).label("record_id")
-        query = db_session.query(
-            subquery.c.sleep_date,
-            subquery.c.min_start_time,
-            subquery.c.max_end_time,
-            subquery.c.total_duration,
-            subquery.c.source,
-            subquery.c.device_model,
-            record_id_col,
-            subquery.c.time_in_bed_minutes,
-            subquery.c.deep_minutes,
-            subquery.c.light_minutes,
-            subquery.c.rem_minutes,
-            subquery.c.awake_minutes,
-            subquery.c.efficiency_weighted_sum,
-            subquery.c.efficiency_duration_sum,
-            subquery.c.nap_count,
-            subquery.c.nap_duration,
         )
 
         # Handle cursor pagination
@@ -399,28 +342,22 @@ class EventRecordRepository(
             cursor_date = cursor_ts.date()
 
             if direction == "prev":
-                # Backward pagination: get items BEFORE cursor
-                query = query.filter(tuple_(subquery.c.sleep_date, record_id_col) < (cursor_date, cursor_id))
-                query = query.order_by(desc(subquery.c.sleep_date), desc(record_id_col))
+                query = query.filter(
+                    tuple_(cast(EventRecord.end_datetime, Date), EventRecord.id) < (cursor_date, cursor_id)
+                )
+                query = query.order_by(desc(cast(EventRecord.end_datetime, Date)), desc(EventRecord.id))
             else:
-                # Forward pagination: get items AFTER cursor
-                query = query.filter(tuple_(subquery.c.sleep_date, record_id_col) > (cursor_date, cursor_id))
-                query = query.order_by(asc(subquery.c.sleep_date), asc(record_id_col))
+                query = query.filter(
+                    tuple_(cast(EventRecord.end_datetime, Date), EventRecord.id) > (cursor_date, cursor_id)
+                )
+                query = query.order_by(asc(cast(EventRecord.end_datetime, Date)), asc(EventRecord.id))
         else:
-            # No cursor: default ordering
-            query = query.order_by(asc(subquery.c.sleep_date), asc(record_id_col))
+            query = query.order_by(asc(cast(EventRecord.end_datetime, Date)), asc(EventRecord.id))
 
-        # Limit + 1 to check for has_more
         results = query.limit(limit + 1).all()
 
-        # Transform results to dict format
         summaries = []
         for row in results:
-            # Calculate weighted average efficiency
-            efficiency_percent = None
-            if row.efficiency_duration_sum and row.efficiency_duration_sum > 0:
-                efficiency_percent = float(row.efficiency_weighted_sum) / float(row.efficiency_duration_sum)
-
             summaries.append(
                 {
                     "sleep_date": row.sleep_date,
@@ -437,10 +374,9 @@ class EventRecordRepository(
                     "light_minutes": int(row.light_minutes) if row.light_minutes is not None else None,
                     "rem_minutes": int(row.rem_minutes) if row.rem_minutes is not None else None,
                     "awake_minutes": int(row.awake_minutes) if row.awake_minutes is not None else None,
-                    "efficiency_percent": efficiency_percent,
-                    # Nap tracking
-                    "nap_count": int(row.nap_count) if row.nap_count is not None else None,
-                    "nap_duration_minutes": int(row.nap_duration) // 60 if row.nap_duration is not None else None,
+                    "efficiency_percent": row.efficiency_percent,
+                    "nap_count": 1 if row.is_nap else 0,
+                    "nap_duration_minutes": int(row.total_duration or 0) // 60 if row.is_nap else 0,
                 }
             )
         return summaries

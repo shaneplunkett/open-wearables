@@ -90,15 +90,18 @@ class SummariesService:
         user_id: UUID,
         results: list[dict] | list,
         date_key: str = "activity_date",
+        keep_all_from_source: bool = False,
     ) -> list[dict] | list:
         """Filter results to highest priority source per date.
 
         Args:
             results: List of dicts with date, source (provider), device_model
             date_key: Key name for date field (activity_date or sleep_date)
+            keep_all_from_source: If True, keep ALL entries from the best source
+                per date (for sleep sessions). If False, keep only one per date.
 
         Returns:
-            Filtered list with only highest priority entry per date
+            Filtered list with highest priority entries per date
         """
         if not results:
             return results
@@ -142,7 +145,14 @@ class SummariesService:
                 return (provider_priority, device_type_priority, device_model or "")
 
             entries_sorted = sorted(entries, key=sort_key)
-            filtered.append(entries_sorted[0])
+            if keep_all_from_source:
+                # Keep all entries from the best source (e.g. multiple sleep sessions)
+                best_source = entries_sorted[0].get("source")
+                for entry in entries_sorted:
+                    if entry.get("source") == best_source:
+                        filtered.append(entry)
+            else:
+                filtered.append(entries_sorted[0])
 
         return filtered
 
@@ -195,7 +205,9 @@ class SummariesService:
         results = self.event_record_repo.get_sleep_summaries(db_session, user_id, start_date, end_date, cursor, limit)
 
         # Filter by priority to get best source per date
-        results = self._filter_by_priority(db_session, user_id, results, date_key="sleep_date")
+        results = self._filter_by_priority(
+            db_session, user_id, results, date_key="sleep_date", keep_all_from_source=True
+        )
 
         # Check if there's more data
         has_more = len(results) > limit
