@@ -121,6 +121,4 @@ async def get_cardiac_summary(
 
     start_datetime = parse_query_datetime(start_date)
     end_datetime = parse_query_datetime(end_date)
-    return await cardiac_service.get_cardiac_summaries(
-        db, user_id, start_datetime, end_datetime, timezone
-    )
+    return await cardiac_service.get_cardiac_summaries(db, user_id, start_datetime, end_datetime, timezone)

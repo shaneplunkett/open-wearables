@@ -9,7 +9,6 @@ from datetime import date as date_type
 from datetime import datetime, timedelta, timezone
 from logging import Logger, getLogger
 from uuid import UUID
-
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import asc
@@ -72,8 +71,7 @@ class CardiacService:
         and time block computation, then aggregates per day.
         """
         self.logger.debug(
-            f"Fetching cardiac summaries for user {user_id} "
-            f"from {start_date} to {end_date} (tz={tz_name})"
+            f"Fetching cardiac summaries for user {user_id} from {start_date} to {end_date} (tz={tz_name})"
         )
 
         local_tz = ZoneInfo(tz_name)
@@ -86,9 +84,7 @@ class CardiacService:
         # Without this, querying 'March 5 Melbourne' misses data from
         # midnight-11am AEDT (which is still March 4 in UTC).
         local_start = datetime.combine(start_date.date(), datetime.min.time(), tzinfo=local_tz)
-        local_end = datetime.combine(
-            (end_date + timedelta(days=1)).date(), datetime.min.time(), tzinfo=local_tz
-        )
+        local_end = datetime.combine((end_date + timedelta(days=1)).date(), datetime.min.time(), tzinfo=local_tz)
         utc_start = local_start.astimezone(timezone.utc)
         utc_end = local_end.astimezone(timezone.utc)
 
@@ -112,9 +108,7 @@ class CardiacService:
 
         # Group data by local date
         # Structure: {date_str: {SeriesType: [(local_datetime, value)]}}
-        by_date: dict[str, dict[SeriesType, list[tuple[datetime, float]]]] = defaultdict(
-            lambda: defaultdict(list)
-        )
+        by_date: dict[str, dict[SeriesType, list[tuple[datetime, float]]]] = defaultdict(lambda: defaultdict(list))
 
         for recorded_at, value, type_def_id in results:
             series_type = type_id_lookup.get(type_def_id)
@@ -165,24 +159,14 @@ class CardiacService:
         hrv_values = [v for _, v in hrv_samples]
         # Normalise SpO2: Apple Health stores as 0-1 fraction, we need 0-100 percent
         spo2_values = [v * 100 if v <= 1.0 else v for _, v in spo2_samples]
-        spo2_samples_normalised = [
-            (dt, v * 100 if v <= 1.0 else v) for dt, v in spo2_samples
-        ]
+        spo2_samples_normalised = [(dt, v * 100 if v <= 1.0 else v) for dt, v in spo2_samples]
         resp_values = [v for _, v in resp_samples]
 
         # Resting HR — Apple Health provides a daily summary value
-        resting_hr = (
-            int(round(sum(resting_hr_values) / len(resting_hr_values)))
-            if resting_hr_values
-            else None
-        )
+        resting_hr = int(round(sum(resting_hr_values) / len(resting_hr_values))) if resting_hr_values else None
 
         # Walking HR average
-        walking_hr = (
-            int(round(sum(walking_hr_values) / len(walking_hr_values)))
-            if walking_hr_values
-            else None
-        )
+        walking_hr = int(round(sum(walking_hr_values) / len(walking_hr_values))) if walking_hr_values else None
 
         # Orthostatic delta — best proxy from passive wearable data
         orthostatic_delta = None
@@ -247,9 +231,7 @@ class CardiacService:
             source="apple_health",
         )
 
-    def _compute_tachycardia_minutes(
-        self, hr_samples: list[tuple[datetime, float]]
-    ) -> int | None:
+    def _compute_tachycardia_minutes(self, hr_samples: list[tuple[datetime, float]]) -> int | None:
         """Count minutes where average HR exceeds tachycardia threshold.
 
         Buckets HR samples by minute, then counts minutes where
