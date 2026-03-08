@@ -123,14 +123,13 @@ class ImportService:
 
             for entry in entries:
                 value = entry.avg or entry.max or entry.min or 0
-                source_name = getattr(entry, "source", None) or "Auto Export"
                 samples.append(
                     HeartRateSampleCreate(
                         id=uuid4(),
                         external_id=None,
                         user_id=user_id,
                         source="apple_health_auto_export",
-                        device_model=source_name,
+                        device_model=None,
                         recorded_at=self._dt(entry.date),
                         value=self._dec(value) or 0,
                     ),
@@ -193,14 +192,13 @@ class ImportService:
                     recorded_at = self._dt(date_str)
                     systolic = self._dec(entry.get("systolic"))
                     diastolic = self._dec(entry.get("diastolic"))
-                    source_name = entry.get("source", "Auto Export")
                     if systolic is not None:
                         samples.append(
                             TimeSeriesSampleCreate(
                                 id=uuid4(),
                                 user_id=user_uuid,
                                 source="apple_health_auto_export",
-                                device_model=source_name,
+                                device_model=None,
                                 recorded_at=recorded_at,
                                 value=systolic,
                                 series_type=SeriesType.blood_pressure_systolic,
@@ -212,7 +210,7 @@ class ImportService:
                                 id=uuid4(),
                                 user_id=user_uuid,
                                 source="apple_health_auto_export",
-                                device_model=source_name,
+                                device_model=None,
                                 recorded_at=recorded_at,
                                 value=diastolic,
                                 series_type=SeriesType.blood_pressure_diastolic,
@@ -242,13 +240,12 @@ class ImportService:
                 value = self._extract_value(entry, name)
                 if value is None:
                     continue
-                source_name = entry.get("source", "Auto Export")
                 samples.append(
                     TimeSeriesSampleCreate(
                         id=uuid4(),
                         user_id=user_uuid,
                         source="apple_health_auto_export",
-                        device_model=source_name,
+                        device_model=None,
                         recorded_at=self._dt(date_str),
                         value=value,
                         series_type=series_type,

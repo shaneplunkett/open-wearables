@@ -39,9 +39,11 @@ from app.utils.pagination import (
 from app.utils.structured_logging import log_structured
 
 # Series types needed for sleep physiological metrics
-# TODO: Add HRV, respiratory rate, and SpO2 when ready
 SLEEP_PHYSIO_SERIES_TYPES = [
     SeriesType.heart_rate,
+    SeriesType.heart_rate_variability_sdnn,
+    SeriesType.respiratory_rate,
+    SeriesType.oxygen_saturation,
 ]
 
 # Activity summary constants
@@ -251,9 +253,11 @@ class SummariesService:
                     awake_minutes=result.get("awake_minutes"),
                 )
 
-            # Fetch average heart rate during the sleep period
-            # TODO: Add HRV, respiratory rate, and SpO2 when ready
+            # Fetch physiological averages during the sleep period
             avg_hr: int | None = None
+            avg_hrv: float | None = None
+            avg_resp_rate: float | None = None
+            avg_spo2: float | None = None
 
             sleep_start = result.get("min_start_time")
             sleep_end = result.get("max_end_time")
@@ -268,6 +272,12 @@ class SummariesService:
                     )
                     hr_avg = physio_averages.get(SeriesType.heart_rate)
                     avg_hr = int(round(hr_avg)) if hr_avg is not None else None
+                    hrv_val = physio_averages.get(SeriesType.heart_rate_variability_sdnn)
+                    avg_hrv = round(hrv_val, 1) if hrv_val is not None else None
+                    resp_val = physio_averages.get(SeriesType.respiratory_rate)
+                    avg_resp_rate = round(resp_val, 1) if resp_val is not None else None
+                    spo2_val = physio_averages.get(SeriesType.oxygen_saturation)
+                    avg_spo2 = round(spo2_val, 1) if spo2_val is not None else None
                 except Exception as e:
                     log_structured(
                         self.logger,
@@ -289,10 +299,9 @@ class SummariesService:
                 nap_count=result.get("nap_count"),
                 nap_duration_minutes=result.get("nap_duration_minutes"),
                 avg_heart_rate_bpm=avg_hr,
-                # TODO: Implement these when ready
-                avg_hrv_sdnn_ms=None,
-                avg_respiratory_rate=None,
-                avg_spo2_percent=None,
+                avg_hrv_sdnn_ms=avg_hrv,
+                avg_respiratory_rate=avg_resp_rate,
+                avg_spo2_percent=avg_spo2,
             )
             data.append(summary)
 
