@@ -181,6 +181,16 @@ class ImportService:
 
             # Sleep gets special handling — EventRecord, not time series
             if name == SLEEP_METRIC:
+                log_structured(
+                    self.log,
+                    "info",
+                    "Sleep metric data sample",
+                    provider="apple",
+                    action="apple_ae_sleep_debug",
+                    entry_count=len(data_entries),
+                    first_entry=data_entries[0] if data_entries else None,
+                    entry_keys=list(data_entries[0].keys()) if data_entries else [],
+                )
                 sleep_records.extend(self._process_sleep_metric(data_entries, user_uuid))
                 continue
 
